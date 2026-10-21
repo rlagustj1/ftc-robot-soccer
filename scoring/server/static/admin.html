@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>심판 콘솔</title>
+<style>
+  :root { --bg: #11141a; --card: #1b2029; --line: #2c3340; --fg: #e9edf3; --muted: #8b95a5;
+    --ok: #2e7d32; --bad: #c62828; --accent: #1e88e5; --left: #e53935; --right: #1e88e5; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 "Malgun Gothic", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: 0.05em; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 14px 10px; color: #fff;
+    background: #394150; cursor: pointer; touch-action: manipulation; }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.35; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .clock { font-size: 56px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .badge { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: #394150; }
+  .badge.running { background: var(--ok); }
+  .badge.paused { background: #ef6c00; }
+  .badge.finished { background: var(--bad); }
+  .conn { font-size: 12px; color: var(--muted); }
+  .conn.bad { color: #ff6b6b; font-weight: 700; }
+  .btn-start { background: var(--ok); font-size: 18px; }
+  .btn-pause { background: #ef6c00; font-size: 18px; }
+  .btn-reset { background: #5a2330; }
+
+  .teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .team { border-radius: 10px; padding: 12px; text-align: center; }
+  .team .name { font-weight: 800; font-size: 18px; }
+  .team .score { font-size: 64px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .team button { background: rgba(0,0,0,0.3); }
+  .team .plus { font-size: 20px; }
+
+  .det { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .det > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-size: 14px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); margin-right: 6px; }
+  .dot.on { background: #43a047; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=number] { width: 100%; font: inherit; padding: 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: #0f1218; color: var(--fg); }
+  input[type=color] { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #0f1218; padding: 2px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 6px 0 12px; color: var(--fg); font-size: 14px; }
+  .presets button { padding: 8px; font-size: 13px; }
+
+  .log { max-height: 280px; overflow-y: auto; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .log div { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .log span { color: var(--muted); margin-right: 8px; }
+  .keys { font-size: 12px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div class="head">
+      <div class="clock" id="clock">-:--</div>
+      <div style="text-align:right">
+        <span class="badge" id="badge">연결 중</span>
+        <div class="conn" id="conn">서버 연결 중…</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn-start" id="btn-start">▶ 시작</button>
+      <button class="btn-pause" id="btn-pause">❚❚ 일시정지</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn-reset" id="btn-reset">↺ 새 경기 (점수·시간 초기화)</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>점수 (자동 판정이 틀리면 여기서 수정)</h2>
+    <div class="teams">
+      <div class="team" id="team-left">
+        <div class="name" id="name-left">RED</div>
+        <div class="score" id="score-left">0</div>
+        <div class="row"><button class="minus" data-team="left" data-delta="-1">−1</button><button class="plus" data-team="left" data-delta="1">+1</button></div>
+      </div>
+      <div class="team" id="team-right">
+        <div class="name" id="name-right">BLUE</div>
+        <div class="score" id="score-right">0</div>
+        <div class="row"><button class="minus" data-team="right" data-delta="-1">−1</button><button class="plus" data-team="right" data-delta="1">+1</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>골대 카메라</h2>
+    <div class="det">
+      <div id="det-left"></div>
+      <div id="det-right"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>경기 설정</h2>
+    <div class="grid2">
+      <div><label>왼쪽 팀 이름</label><input type="text" id="set-name-left" maxlength="20"></div>
+      <div><label>오른쪽 팀 이름</label><input type="text" id="set-name-right" maxlength="20"></div>
+      <div><label>왼쪽 팀 색</label><input type="color" id="set-color-left"></div>
+      <div><label>오른쪽 팀 색</label><input type="color" id="set-color-right"></div>
+    </div>
+    <label>경기 시간 (초) — 대기 상태에서 바꾸면 바로 적용, 진행 중이면 다음 새 경기부터</label>
+    <div class="row presets" style="margin-bottom:8px">
+      <button data-sec="60">1:00</button><button data-sec="90">1:30</button><button data-sec="120">2:00</button><button data-sec="180">3:00</button>
+    </div>
+    <input type="number" id="set-duration" min="10" max="600">
+    <label class="check"><input type="checkbox" id="set-auto"> 경기 진행 중일 때만 자동 득점 인정 (테스트할 땐 끄기)</label>
+    <button id="btn-save" style="width:100%; background: var(--accent)">설정 저장</button>
+  </section>
+
+  <section class="card">
+    <h2>기록</h2>
+    <div class="log" id="log"></div>
+  </section>
+  <div class="keys">키보드: Space 시작/일시정지 · 1 왼쪽 +1 · 2 오른쪽 +1</div>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+  var state = null;
+  var formFilled = false;
+  var $ = function (id) { return document.getElementById(id); };
+  var BADGE = { ready: '대기', running: '경기 중', paused: '일시정지', finished: '종료' };
+
+  function fillForm() {
+    ['left', 'right'].forEach(function (side) {
+      $('set-name-' + side).value = state.teams[side].name;
+      $('set-color-' + side).value = state.teams[side].color;
+    });
+    $('set-duration').value = state.duration;
+    $('set-auto').checked = state.auto_only_running;
+    formFilled = true;
+  }
+
+  function detectorHtml(side, d) {
+    var title = (side === 'left' ? '왼쪽' : '오른쪽') + ' 골대';
+    if (!d.online) return '<span class="dot"></span><b>' + title + '</b><div class="muted">오프라인 — 감지 프로그램 확인</div>';
+    var parts = [];
+    if (d.camera === false) parts.push('카메라 안 잡힘');
+    parts.push(d.armed ? '대기 중' : '공 들어있음 (빼면 다시 대기)');
+    if (d.fps) parts.push(Math.round(d.fps) + ' fps');
+    return '<span class="dot on"></span><b>' + title + '</b><div class="muted">' + parts.join(' · ') + '</div>';
+  }
+
+  function render() {
+    $('badge').textContent = BADGE[state.status];
+    $('badge').className = 'badge ' + state.status;
+    $('btn-start').disabled = !(state.status === 'ready' || state.status === 'paused');
+    $('btn-start').textContent = state.status === 'paused' ? '▶ 재개' : '▶ 시작';
+    $('btn-pause').disabled = state.status !== 'running';
+    ['left', 'right'].forEach(function (side) {
+      $('name-' + side).textContent = state.teams[side].name;
+      $('score-' + side).textContent = state.teams[side].score;
+      $('team-' + side).style.background = state.teams[side].color;
+      $('det-' + side).innerHTML = detectorHtml(side, state.detectors[side]);
+    });
+    var log = $('log');
+    log.innerHTML = '';
+    state.events.slice().reverse().forEach(function (e) {
+      var row = document.createElement('div');
+      var time = document.createElement('span');
+      time.textContent = e.t + ' [' + e.clock + ']';
+      row.appendChild(time);
+      row.appendChild(document.createTextNode(e.text));
+      log.appendChild(row);
+    });
+    if (!formFilled) fillForm();
+  }
+
+  function updateClock() {
+    if (state) $('clock').textContent = formatClock(remainingMs(state));
+  }
+
+  function act(body) {
+    return api(body).then(function (s) { if (s.type === 'state') { s.receivedAt = performance.now(); state = s; render(); } });
+  }
+
+  connectState(function (s) { state = s; render(); updateClock(); }, function (ok) {
+    $('conn').textContent = ok ? '서버 연결됨' : '서버 연결 끊김 · 재연결 중';
+    $('conn').className = 'conn' + (ok ? '' : ' bad');
+  });
+  setInterval(updateClock, 100);
+
+  $('btn-start').onclick = function () { act({ action: 'start' }); };
+  $('btn-pause').onclick = function () { act({ action: 'pause' }); };
+  $('btn-reset').onclick = function () {
+    if (confirm('점수와 시간을 초기화하고 새 경기를 준비할까요?')) act({ action: 'reset' });
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('.team button'), function (b) {
+    b.onclick = function () { act({ action: 'score', team: b.dataset.team, delta: Number(b.dataset.delta) }); };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.presets button'), function (b) {
+    b.onclick = function () { $('set-duration').value = b.dataset.sec; };
+  });
+  $('btn-save').onclick = function () {
+    act({
+      action: 'settings',
+      teams: {
+        left: { name: $('set-name-left').value, color: $('set-color-left').value },
+        right: { name: $('set-name-right').value, color: $('set-color-right').value }
+      },
+      duration: Number($('set-duration').value) || 120,
+      auto_only_running: $('set-auto').checked
+    }).then(fillForm);
+  };
+
+  document.addEventListener('keydown', function (e) {
+    if (!state || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      act({ action: state.status === 'running' ? 'pause' : 'start' });
+    } else if (e.key === '1') {
+      act({ action: 'score', team: 'left', delta: 1 });
+    } else if (e.key === '2') {
+      act({ action: 'score', team: 'right', delta: 1 });
+    }
+  });
+</script>
+</body>
+</html>

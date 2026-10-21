@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로봇 축구 점수판</title>
+<style>
+  :root { --left: #e53935; --right: #1e88e5; --bg: #0b0d12; --fg: #ffffff; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font-family: "Pretendard", "Malgun Gothic", "LG Smart UI", sans-serif; cursor: default; }
+
+  .board { height: 100vh; display: flex; flex-direction: column; }
+  .top { height: 28vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .clock { font-size: 20vh; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  .status { font-size: 4vh; font-weight: 700; opacity: 0.75; margin-top: 1vh; min-height: 5vh; letter-spacing: 0.1em; }
+  .clock.warn { color: #ff5252; animation: pulse 1s infinite; }
+  .clock.paused { opacity: 0.5; }
+  @keyframes pulse { 50% { opacity: 0.55; } }
+
+  .teams { flex: 1; display: flex; }
+  .team { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: relative; transition: filter 0.4s, opacity 0.4s; }
+  .team.left { background: var(--left); }
+  .team.right { background: var(--right); }
+  .team .name { font-size: 7vh; font-weight: 800; letter-spacing: 0.05em; text-shadow: 0 0.4vh 1.5vh rgba(0,0,0,0.3);
+    max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .team .score { font-size: 42vh; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums;
+    text-shadow: 0 1vh 4vh rgba(0,0,0,0.35); }
+  .team.bump .score { animation: bump 0.6s ease-out; }
+  @keyframes bump { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  .team.lose { filter: grayscale(0.7) brightness(0.55); }
+  .team .crown { position: absolute; top: 3vh; font-size: 4vh; font-weight: 800; letter-spacing: 0.2em;
+    background: rgba(0,0,0,0.25); padding: 0.5vh 2vh; border-radius: 1vh; display: none; }
+  .team.win .crown { display: block; }
+
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+  .overlay.show { opacity: 1; }
+  .goal-text { font-size: 30vh; font-weight: 900; font-style: italic; letter-spacing: 0.05em; line-height: 1;
+    text-shadow: 0 1.5vh 5vh rgba(0,0,0,0.4); }
+  .goal-team { font-size: 9vh; font-weight: 800; margin-top: 2vh; }
+  .overlay.show .goal-text { animation: zoom 0.5s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes zoom { 0% { transform: scale(0.3); } 100% { transform: scale(1); } }
+
+  .conn { position: fixed; right: 1.5vh; bottom: 1.5vh; font-size: 2.2vh; padding: 0.6vh 1.5vh; border-radius: 1vh;
+    background: #b71c1c; display: none; }
+  .conn.show { display: block; }
+  .hint { position: fixed; left: 50%; bottom: 2vh; transform: translateX(-50%); font-size: 2.2vh; opacity: 0.6;
+    background: rgba(0,0,0,0.4); padding: 0.6vh 2vh; border-radius: 1vh; transition: opacity 1s; }
+
+  /* 스탠바이미를 세로로 돌렸을 때 */
+  @media (orientation: portrait) {
+    .top { height: 22vh; }
+    .clock { font-size: 13vh; }
+    .status { font-size: 2.6vh; }
+    .teams { flex-direction: column; }
+    .team .name { font-size: 4.5vh; }
+    .team .score { font-size: 24vh; }
+    .goal-text { font-size: 16vw; }
+    .goal-team { font-size: 7vw; }
+  }
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="top">
+    <div class="clock" id="clock">2:00</div>
+    <div class="status" id="status">연결 중…</div>
+  </div>
+  <div class="teams">
+    <div class="team left" id="team-left"><div class="crown">WIN</div><div class="name" id="name-left">RED</div><div class="score" id="score-left">0</div></div>
+    <div class="team right" id="team-right"><div class="crown">WIN</div><div class="name" id="name-right">BLUE</div><div class="score" id="score-right">0</div></div>
+  </div>
+</div>
+<div class="overlay" id="goal"><div class="goal-text">GOAL!</div><div class="goal-team" id="goal-team"></div></div>
+<div class="conn" id="conn">서버 연결 끊김 · 재연결 중</div>
+<div class="hint" id="hint">화면을 누르면 전체화면</div>
+
+<script src="/static/common.js"></script>
+<script>
+  var state = null;
+  var seenGoalSeq = null;
+  var goalTimer = null;
+  var STATUS_TEXT = { ready: '경기 준비', running: '', paused: '일시정지', finished: '경기 종료' };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function render() {
+    if (!state) return;
+    var root = document.documentElement.style;
+    root.setProperty('--left', state.teams.left.color);
+    root.setProperty('--right', state.teams.right.color);
+    ['left', 'right'].forEach(function (side) {
+      $('name-' + side).textContent = state.teams[side].name;
+      var scoreEl = $('score-' + side);
+      if (scoreEl.textContent !== String(state.teams[side].score)) {
+        scoreEl.textContent = state.teams[side].score;
+        var team = $('team-' + side);
+        team.classList.remove('bump'); void team.offsetWidth; team.classList.add('bump');
+      }
+    });
+
+    var l = state.teams.left.score, r = state.teams.right.score;
+    var finished = state.status === 'finished';
+    $('team-left').className = 'team left' + (finished && l > r ? ' win' : '') + (finished && l < r ? ' lose' : '');
+    $('team-right').className = 'team right' + (finished && r > l ? ' win' : '') + (finished && r < l ? ' lose' : '');
+    var status = STATUS_TEXT[state.status];
+    if (finished) status += l === r ? ' · 무승부' : ' · ' + state.teams[l > r ? 'left' : 'right'].name + ' 승리';
+    $('status').textContent = status;
+
+    var g = state.last_goal;
+    if (seenGoalSeq === null) {
+      seenGoalSeq = g ? g.seq : 0;  // 페이지 처음 열었을 땐 지난 골 애니메이션 안 띄움
+    } else if (g && g.seq > seenGoalSeq) {
+      seenGoalSeq = g.seq;
+      showGoal(g.team);
+    }
+  }
+
+  function showGoal(side) {
+    var overlay = $('goal');
+    overlay.style.background = state.teams[side].color;
+    $('goal-team').textContent = state.teams[side].name;
+    overlay.classList.remove('show'); void overlay.offsetWidth; overlay.classList.add('show');
+    clearTimeout(goalTimer);
+    goalTimer = setTimeout(function () { overlay.classList.remove('show'); }, 3000);
+  }
+
+  function updateClock() {
+    if (!state) return;
+    var ms = remainingMs(state);
+    var clock = $('clock');
+    clock.textContent = formatClock(ms);
+    clock.className = 'clock' + (state.status === 'running' && ms <= 10000 ? ' warn' : '') + (state.status === 'paused' ? ' paused' : '');
+  }
+
+  connectState(function (s) { state = s; render(); updateClock(); },
+               function (ok) { $('conn').className = 'conn' + (ok ? '' : ' show'); });
+  setInterval(updateClock, 100);
+
+  document.body.addEventListener('click', function () {
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req && !document.fullscreenElement) req.call(el);
+  });
+  setTimeout(function () { $('hint').style.opacity = 0; }, 6000);
+</script>
+</body>
+</html>

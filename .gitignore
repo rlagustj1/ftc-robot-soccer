@@ -79,3 +79,8 @@ lint/generated/
 lint/outputs/
 lint/tmp/
 # lint/reports/
+# Robot soccer scoring system
+scoring/server/state.json
+scoring/server/state.tmp
+__pycache__/
+
