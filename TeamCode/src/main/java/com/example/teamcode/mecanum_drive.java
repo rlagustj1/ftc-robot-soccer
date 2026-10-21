@@ -3,6 +3,7 @@ package com.example.teamcode;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.VoltageSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 /**
@@ -17,6 +18,10 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * gamepad1 right stick x: rotation
  * gamepad1 right bumper : booster (tap)
  * gamepad1 X            : kick, then (after the 2 s cooldown) X again to charge. See Kicker.
+ * gamepad1 B            : kick strength SOFT / HARD toggle
+ * gamepad1 Y            : kick brake strength x0.6 / x1.0 / x1.5 / x2.0 (lower = brakes earlier)
+ * gamepad1 dpad up/down : trim the picked kick strength +/- 0.05 (shown on telemetry)
+ * gamepad1 dpad left/right : kick angle -/+ 5 deg (shown on telemetry)
  *
  * Booster cycle: READY -> BOOST -> PENALTY -> COOLDOWN -> READY
  *   BOOST    : faster than normal for BOOST_TIME
@@ -119,6 +124,8 @@ public class mecanum_drive extends LinearOpMode {
         r_b.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         Kicker kicker = new Kicker(hardwareMap, kickerProfile());
+        // Robot has browned out before; watch this drop when the arms move.
+        VoltageSensor battery = hardwareMap.voltageSensor.iterator().next();
 
         double speed_degree=0.5;
 
@@ -215,6 +222,12 @@ public class mecanum_drive extends LinearOpMode {
             // Same reason as the booster: read the edge every loop so a press
             // during the cooldown is dropped, not stored.
             kicker.update(gamepad1.xWasPressed());
+            if (gamepad1.bWasPressed())        kicker.toggleStrength();
+            if (gamepad1.yWasPressed())        kicker.cycleBrakeScale();
+            if (gamepad1.dpadUpWasPressed())   kicker.adjustFirePower(+0.05);
+            if (gamepad1.dpadDownWasPressed()) kicker.adjustFirePower(-0.05);
+            if (gamepad1.dpadRightWasPressed()) kicker.adjustKickAngle(+5);
+            if (gamepad1.dpadLeftWasPressed())  kicker.adjustKickAngle(-5);
 
             telemetry.addData("time left", "%.1f s", MATCH_TIME - matchTimer.seconds());
             telemetry.addData("booster", "%s  (speed x%.2f)", boostState, boostScale);
@@ -222,6 +235,7 @@ public class mecanum_drive extends LinearOpMode {
                     boostState == BoostState.BOOST ? BOOST_TIME - t : 0.0);
             telemetry.addData("penalty left", "%.1f s", penaltyLeft);
             telemetry.addData("booster cooldown", "%.1f s", cooldownLeft);
+            telemetry.addData("battery", "%.1f V", battery.getVoltage());
             kicker.addTelemetry(telemetry);
             telemetry.addData("heading", "%.0f deg", Math.toDegrees(Math.atan2(uy, ux)));
             telemetry.addData("stick / mag", "%.2f -> %.2f", r, mag);
