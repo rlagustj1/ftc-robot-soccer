@@ -16,6 +16,7 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * gamepad1 left stick   : translation, any angle, any magnitude
  * gamepad1 right stick x: rotation
  * gamepad1 right bumper : booster (tap)
+ * gamepad1 X            : kick, then (after the 2 s cooldown) X again to charge. See Kicker.
  *
  * Booster cycle: READY -> BOOST -> PENALTY -> COOLDOWN -> READY
  *   BOOST    : faster than normal for BOOST_TIME
@@ -24,10 +25,18 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  *
  * The robot stops by itself MATCH_TIME seconds after START is pressed.
  *
- * Configure names must match exactly: "motor1" .. "motor4".
+ * Configure names must match exactly: "motor1" .. "motor4",
+ * plus "kick_left" / "kick_right" on Expansion Hub ports 0 / 1.
+ *
+ * This one is robot 1 (1150 rpm kick motors). Robot 2 uses mecanum_drive_6000,
+ * which only swaps the kicker profile.
  */
-@TeleOp(name = "mecanum_drive")
+@TeleOp(name = "mecanum_drive (robot1 1150)")
 public class mecanum_drive extends LinearOpMode {
+
+    protected Kicker.Profile kickerProfile() {
+        return Kicker.ROBOT1_1150;
+    }
 
     static final double DEADZONE   = 0.06; // stick slop to ignore
     static final double EXPO       = 2.0;  // 1.0 = linear, higher = softer centre
@@ -109,9 +118,12 @@ public class mecanum_drive extends LinearOpMode {
         l_b.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         r_b.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
+        Kicker kicker = new Kicker(hardwareMap, kickerProfile());
+
         double speed_degree=0.5;
 
-        telemetry.addLine("Ready. Left stick = move, right stick = turn.");
+        telemetry.addLine("Ready. Left stick = move, right stick = turn, X = kick.");
+        telemetry.addLine("Kick arms must be CHARGED (pulled back) at INIT.");
         telemetry.update();
 
         waitForStart();
@@ -200,12 +212,17 @@ public class mecanum_drive extends LinearOpMode {
 
             drive(l_f, r_f, l_b, r_b, ux, uy, mag, rx, speed_degree * boostScale);
 
+            // Same reason as the booster: read the edge every loop so a press
+            // during the cooldown is dropped, not stored.
+            kicker.update(gamepad1.xWasPressed());
+
             telemetry.addData("time left", "%.1f s", MATCH_TIME - matchTimer.seconds());
             telemetry.addData("booster", "%s  (speed x%.2f)", boostState, boostScale);
             telemetry.addData("boost left", "%.1f s",
                     boostState == BoostState.BOOST ? BOOST_TIME - t : 0.0);
             telemetry.addData("penalty left", "%.1f s", penaltyLeft);
             telemetry.addData("booster cooldown", "%.1f s", cooldownLeft);
+            kicker.addTelemetry(telemetry);
             telemetry.addData("heading", "%.0f deg", Math.toDegrees(Math.atan2(uy, ux)));
             telemetry.addData("stick / mag", "%.2f -> %.2f", r, mag);
             telemetry.addData("turn", "%.2f", rx);
@@ -218,6 +235,7 @@ public class mecanum_drive extends LinearOpMode {
         r_f.setPower(0);
         l_b.setPower(0);
         r_b.setPower(0);
+        kicker.stop();
 
         telemetry.addLine("Time up. Robot stopped.");
         telemetry.update();
